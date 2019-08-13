@@ -734,7 +734,57 @@
 												"@value": "{process.find('//Solvent').text}"					
 											}
 										]
-									}
+									},
+									"sio:hasPart":
+									{
+										"@type" : "sio:Procedure",
+										"@id": "sample:{{slugify(id.text.replace(' ',''))}}"
+									},
+									# "sio:hasAttribute":
+									# {
+
+									# }
+
+#adding heating of process
+
+									{
+										"@for": "heat in process.findall('//ChooseParameter/Heating')",
+										"@do":
+										{
+											{
+												"@if": "heat.find('.//Heating/Temperature') is not None",
+												"@type": "sio:Mixing",
+												"sio:hasValue": 
+												{
+													"@value": "{{heat.find('.//Heating/Temperature/value').text}}",
+													"@type": "xsd:double"
+												},
+												"sio:hasUnit": [{
+													"@if": "heat.find('.//Heating/Temperature/unit') is not None",
+													"@id": "unit:{{slugify(process.find('.//Heating/Temperature/unit').text)}}",
+													"rdfs:label": "{{shape.find('.//Heating/Temperature/unit').text}}"
+																}],
+											},
+											{
+												"@if": "heat.find('.//Heating/Time') is not None",
+												"@type": "sio:Mixing",
+												"sio:hasValue": 
+												{
+													"@value": "{{heat.find('.//Heating/Time/value').text}}",
+													"@type": "xsd:double"
+												},
+												"sio:hasUnit": [{
+													"@if": "heat.find('.//Heating/Time/unit') is not None",
+													"@id": "unit:{{slugify(process.find('.//Heating/Time/unit').text)}}",
+													"rdfs:label": "{{shape.find('.//Heating/Time/unit').text}}"
+																}],
+											}
+
+										}
+														
+									},
+
+
 								}
 							}
 						]	
