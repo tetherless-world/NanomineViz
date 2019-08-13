@@ -7,7 +7,12 @@ import rdflib
 import slugify
 import os
 
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
 import autonomic
+
+disabled = []
 
 files = {
     "template": '''<{}> a <http://nanomine.org/ns/NanomineXMLFile>,
@@ -17,187 +22,259 @@ files = {
 }
 
 
+def get_remote_xml(file_under_test):
+    """ Given an nanomine file returns the xml string """
+    s = requests.Session()
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504], raise_on_redirect=True, raise_on_status=True)
+    s.mount("http://", HTTPAdapter(max_retries=retries))
+    response = s.get('https://materialsmine.org/nmr/xml/' + file_under_test + '.xml', timeout=5)
+    j = json.loads(response.text)
+    xml_str = j["data"][0]["xml_str"]
+    return xml_str
+
+
+def get_local_xml(file_under_test):
+    """ Attempts to load a given file from the local /tests/xml/ folder """
+    file_under_test += ".xml"
+    test_folder_path = os.path.abspath(os.path.dirname(__file__))
+    file_path = os.path.join(test_folder_path, "xml", file_under_test)
+    with open(file_path) as f:
+        return f.read()   
+
+def get_xml(file_under_test):
+    try:
+        return get_local_xml(file_under_test)
+    except FileNotFoundError:
+        print("File not found locally, loading from server...")
+        return get_remote_xml(file_under_test)
+
+def disable_test(func):
+    disabled.append(func.__name__)
+    print(func.__name__, "is disabled and will not run")
+    def disable(*args, **kwargs):
+        print(func.__name__, "has been disabled")
+    return disable
+
+
 def setUp(runner, file_under_test):
+    # Skip setting up disabled tests
+    if os.getenv("CI") is not None:
+        if runner._testMethodName in disabled:
+            print("Skipping test", str(runner._testMethodName), "in CI since it is disabled")
+            return
     # Initialization
     runner.login(*runner.create_user("user@example.com", "password"))
 
-    r = requests.get('http://nanomine.org/nmr/xml/' + file_under_test + '.xml')
-    j = json.loads(r.text)
-    xml_str = j["data"][0]["xml_str"]
-    temp = tempfile.NamedTemporaryFile()
-    temp.write(xml_str.encode("utf-8"))
-    temp.seek(0)
+    with tempfile.NamedTemporaryFile() as temp:
+        xml_str = get_xml(file_under_test)
+        temp.write(xml_str.encode("utf-8"))
+        temp.seek(0)
 
-    files[file_under_test] = files["template"].format(temp.name)
-    upload = files[file_under_test]
 
-    response = runner.client.post(
-        "/pub", data=upload, content_type="text/turtle", follow_redirects=True)
-    runner.assertEquals(response.status, '201 CREATED')
+        files[file_under_test] = files["template"].format(temp.name)
+        upload = files[file_under_test]
 
-    response = runner.client.post("/pub", data=open('/apps/nanomine-graph/setl/xml_ingest.setl.ttl', 'rb').read(),
-                                  content_type="text/turtle", follow_redirects=True)
-    runner.assertEquals(response.status, '201 CREATED')
+        response = runner.client.post(
+            "/pub", data=upload, content_type="text/turtle", follow_redirects=True)
+        runner.assertEquals(response.status, '201 CREATED')
 
-    setlmaker = autonomic.SETLMaker()
-    results = runner.run_agent(setlmaker)
+        response = runner.client.post("/pub", data=open('/apps/nanomine-graph/setl/xml_ingest.setl.ttl', 'rb').read(),
+                                    content_type="text/turtle", follow_redirects=True)
+        runner.assertEquals(response.status, '201 CREATED')
 
-    # confirm this is creating a SETL script for the XML file.
-    runner.assertTrue(len(results) > 0)
+        setlmaker = autonomic.SETLMaker()
+        results = runner.run_agent(setlmaker)
 
-    setlr = autonomic.SETLr()
+        # confirm this is creating a SETL script for the XML file.
+        runner.assertTrue(len(results) > 0)
 
-    print(len(runner.app.db))
-    for setlr_np in results:
-        setlr_results = runner.run_agent(setlr, nanopublication=setlr_np)
+        setlr = autonomic.SETLr()
 
-    temp.close()
+        print(len(runner.app.db))
+        for setlr_np in results:
+            setlr_results = runner.run_agent(setlr, nanopublication=setlr_np)
 
+
+def query_table(runner, dependentVar, independentVar,
+                measurement_description=None, x_description=None, y_description=None):
+    
+    if measurement_description is not None:
+        measurement_description = '?sample <http://purl.org/dc/elements/1.1/Description> "{}" .'.format(measurement_description)
+    else:
+        measurement_description = ""
+
+    if x_description is not None:
+        x_description = '?independentVarNode <http://purl.org/dc/elements/1.1/Description> "{}" .'.format(x_description)
+    else:
+        x_description = ""
+
+    if y_description is not None:
+        y_description = '?dependentVarNode <http://purl.org/dc/elements/1.1/Description> "{}" .'.format(y_description)
+    else:
+        y_description = ""
+    
+
+
+    query = """
+        SELECT ?dependentVar ?independentVar
+        WHERE {{
+            ?sample <http://semanticscience.org/resource/hasAttribute> ?dependentVarNode .
+            ?dependentVarNode a {} .
+            ?dependentVarNode <http://semanticscience.org/resource/hasValue> ?dependentVar .
+            ?dependentVarNode <http://semanticscience.org/resource/inRelationTo> ?independentVarNode .
+            ?independentVarNode a {} .
+            ?independentVarNode <http://semanticscience.org/resource/hasValue> ?independentVar .
+            {}
+            {}
+            {}
+        }}
+    """.format(dependentVar, independentVar, measurement_description, x_description, y_description)
+    # print(query)
+    values = runner.app.db.query(query)
+    return values
 
 
 def autoparse(file_under_test):
     # Parses out information from the specified file for verification the the correct data
     # ends up in the graph
-    r = requests.get('http://nanomine.org/nmr/xml/' + file_under_test + '.xml')
-    j = json.loads(r.text)
-    xml_str = j["data"][0]["xml_str"]
-    temp = tempfile.NamedTemporaryFile()
-    temp.write(xml_str.encode('utf-8'))
-    temp.seek(0)
-    tree = ET.parse(temp)
-    root = tree.getroot()
-    expected_data = dict()
-    # CommonFields Data
-    # common_fields = next(root.iter("CommonFields"))
-    expected_data["authors"] = [
-        elem.text for elem in root.findall(".//CommonFields//Author")]
-    expected_data["keywords"] = [elem.text.title()
-                                 for elem in root.findall(".//CommonFields//Keyword")]
-    expected_data["DOI"] = [elem.text.title()
-                            for elem in root.findall(".//CommonFields//DOI")]
-    expected_data["language"] = ["http://nanomine.org/language/" + elem.text.lower()
-                                 for elem in root.findall(".//CommonFields//Language")]
-    expected_data["journ_vol"] = [
-        rdflib.Literal(int(val.text)) for val in root.findall(".//CommonFields//Volume")]
+    with tempfile.TemporaryFile() as temp:
+        xml_str = get_remote_xml(file_under_test)
+        temp.write(xml_str.encode('utf-8'))
+        temp.seek(0)
+        tree = ET.parse(temp)
+    
+        root = tree.getroot()
+        expected_data = dict()
+        # CommonFields Data
+        # common_fields = next(root.iter("CommonFields"))
+        expected_data["authors"] = [
+            elem.text for elem in root.findall(".//CommonFields//Author")]
+        expected_data["keywords"] = [elem.text.title()
+                                    for elem in root.findall(".//CommonFields//Keyword")]
+        expected_data["DOI"] = [elem.text.title()
+                                for elem in root.findall(".//CommonFields//DOI")]
+        expected_data["language"] = ["http://nanomine.org/language/" + elem.text.lower()
+                                    for elem in root.findall(".//CommonFields//Language")]
+        expected_data["journ_vol"] = [
+            rdflib.Literal(int(val.text)) for val in root.findall(".//CommonFields//Volume")]
 
-    # Matrix Data
-    # matrix_data = next(root.iter("Matrix"))
-    expected_data["m_name"] = [rdflib.Literal(elem.text)
-                               for elem in root.findall(".//Matrix//ChemicalName")]
-    expected_data["m_trd_name"] = [
-        rdflib.Literal(elem.text) for elem in root.findall(".//Matrix//TradeName")]
-    expected_data["abbrev"] = [rdflib.Literal(elem.text)
-                               for elem in root.findall(".//Matrix//Abbreviation")]
-    expected_data["manufac"] = [
-        rdflib.Literal(elem.text) for elem in root.findall(".//Matrix//ManufacturerOrSourceName")]
-    expected_data["specific_surface_area"] = [
-        rdflib.Literal(elem.text, datatype=rdflib.XSD.double) for elem in root.findall(".//Matrix//SurfaceArea/specific/value")]
-    expected_data["specific_surface_area_units"] = [
-        rdflib.Literal(elem.text) for elem in root.findall(".//Matrix//SurfaceArea/specific/unit")]
+        # Matrix Data
+        # matrix_data = next(root.iter("Matrix"))
+        expected_data["m_name"] = [rdflib.Literal(elem.text)
+                                for elem in root.findall(".//Matrix//ChemicalName")]
+        expected_data["m_trd_name"] = [
+            rdflib.Literal(elem.text) for elem in root.findall(".//Matrix//TradeName")]
+        expected_data["abbrev"] = [rdflib.Literal(elem.text)
+                                for elem in root.findall(".//Matrix//Abbreviation")]
+        expected_data["manufac"] = [
+            rdflib.Literal(elem.text) for elem in root.findall(".//Matrix//ManufacturerOrSourceName")]
+        expected_data["specific_surface_area"] = [
+            rdflib.Literal(elem.text, datatype=rdflib.XSD.double) for elem in root.findall(".//Matrix//SurfaceArea/specific/value")]
+        expected_data["specific_surface_area_units"] = [
+            rdflib.Literal(elem.text) for elem in root.findall(".//Matrix//SurfaceArea/specific/unit")]
 
-    # Filler data
-    # filler_data = next(root.iter("Filler"))
-    expected_data["f_name"] = [rdflib.Literal(elem.text)
-                               for elem in root.findall(".//Filler//ChemicalName")]
-    expected_data["f_trd_name"] = [
-        rdflib.Literal(elem.text) for elem in root.findall(".//Filler//TradeName")]
-    expected_data["abbrev"] += [rdflib.Literal(elem.text)
-                                for elem in root.findall(".//Filler//Abbreviation")]
-    expected_data["manufac"] += [rdflib.Literal(elem.text)
-                                 for elem in root.findall(".//Filler//ManufacturerOrSourceName")]
-    expected_data["specific_surface_area"] += [
-        rdflib.Literal(elem.text, datatype=rdflib.XSD.double) for elem in root.findall(".//Filler//SurfaceArea/specific/value")]
-    expected_data["specific_surface_area_units"] += [
-        rdflib.Literal(elem.text) for elem in root.findall(".//Filler//SurfaceArea/specific/unit")]
+        # Filler data
+        # filler_data = next(root.iter("Filler"))
+        expected_data["f_name"] = [rdflib.Literal(elem.text)
+                                for elem in root.findall(".//Filler//ChemicalName")]
+        expected_data["f_trd_name"] = [
+            rdflib.Literal(elem.text) for elem in root.findall(".//Filler//TradeName")]
+        expected_data["abbrev"] += [rdflib.Literal(elem.text)
+                                    for elem in root.findall(".//Filler//Abbreviation")]
+        expected_data["manufac"] += [rdflib.Literal(elem.text)
+                                    for elem in root.findall(".//Filler//ManufacturerOrSourceName")]
+        expected_data["specific_surface_area"] += [
+            rdflib.Literal(elem.text, datatype=rdflib.XSD.double) for elem in root.findall(".//Filler//SurfaceArea/specific/value")]
+        expected_data["specific_surface_area_units"] += [
+            rdflib.Literal(elem.text) for elem in root.findall(".//Filler//SurfaceArea/specific/unit")]
 
-    #Viscoleastic Properties,hardness, hardnessteststandard - Neha
-    expected_data["viscoelastic_measurement_mode"] = [rdflib.Literal(elem.text)
-                                      for elem in root.iter(".//Viscoelastic//MeasurementMode")]   
-     
-    expected_data["hardness"] = [rdflib.Literal(elem.text)
-                                  for elem in root.iter("Hardness")]
-     
-    expected_data["hardnessteststandard"] = [rdflib.Literal(elem.text)
-                                              for elem in root.iter(".//HardnessTestStandard")]
+        #Viscoleastic Properties,hardness, hardnessteststandard - Neha
+        expected_data["viscoelastic_measurement_mode"] = [rdflib.Literal(elem.text)
+                                        for elem in root.iter(".//Viscoelastic//MeasurementMode")]   
+        
+        expected_data["hardness"] = [rdflib.Literal(elem.text)
+                                    for elem in root.iter("Hardness")]
+        
+        expected_data["hardnessteststandard"] = [rdflib.Literal(elem.text)
+                                                for elem in root.iter(".//HardnessTestStandard")]
 
-    expected_data["melt_viscosity_values"] = [rdflib.Literal(elem.text)
-                                               for elem in root.iter("Author")]
+        expected_data["melt_viscosity_values"] = [rdflib.Literal(elem.text)
+                                                for elem in root.iter("Author")]
 
 
-    # Check that matrix and filler components are properly constructed
-    def build_component_dict(component):
-        material = dict()
-        material["name"] = component.find(".//ChemicalName")
-        material["abbrev"] = component.find(".//Abbreviation")
-        material["manufac"] = component.find(".//ManufacturerOrSourceName")
-        material["trade"] = component.find(".//TradeName")
-        for key, value in material.items():
-            if value is not None:
-                material[key] = rdflib.Literal(material[key].text)
-        return material
+        # Check that matrix and filler components are properly constructed
+        def build_component_dict(component):
+            material = dict()
+            material["name"] = component.find(".//ChemicalName")
+            material["abbrev"] = component.find(".//Abbreviation")
+            material["manufac"] = component.find(".//ManufacturerOrSourceName")
+            material["trade"] = component.find(".//TradeName")
+            for key, value in material.items():
+                if value is not None:
+                    material[key] = rdflib.Literal(material[key].text)
+            return material
 
-    expected_data["compiled_material"] = [build_component_dict(
-        component) for component in root.findall(".//MatrixComponent")]
-    expected_data["compiled_material"] += [build_component_dict(
-        component) for component in root.findall(".//FillerComponent")]
+        expected_data["compiled_material"] = [build_component_dict(
+            component) for component in root.findall(".//MatrixComponent")]
+        expected_data["compiled_material"] += [build_component_dict(
+            component) for component in root.findall(".//FillerComponent")]
 
-    def extract_choose_parameter(section):
-        if section is None:
-            return None
-        order = list()
-        for param in section.findall(".//ChooseParameter"):
-            for component in param:
-                order.append(component.tag)
-        return order
+        def extract_choose_parameter(section):
+            if section is None:
+                return None
+            order = list()
+            for param in section.findall(".//ChooseParameter"):
+                for component in param:
+                    order.append(component.tag)
+            return order
 
-    expected_data["filler_processing"] = extract_choose_parameter(root.find(".//FillerProcessing"))
-    expected_data["solution_processing"] = extract_choose_parameter(root.find(".//SolutionProcessing"))
+        expected_data["filler_processing"] = extract_choose_parameter(root.find(".//FillerProcessing"))
+        expected_data["solution_processing"] = extract_choose_parameter(root.find(".//SolutionProcessing"))
 
-    # Table data
+        # Table data
 
-    def extract_table_data(data_tag):
-        if data_tag is None:
-            return None
-        if data_tag.find("data") is None:
-            return None
-        table = dict()  # Holds the description, headers, and dataframe
-        table["description"] = data_tag.find(".//description").text
-        table["headers"] = [elem.text for elem in data_tag.find(
-            ".//headers").iter("column")]
-        data = dict()
-        for i, category in enumerate(table["headers"]):
-            data[category] = data_tag.find(
-                ".//rows").findall("row/column[@id='" + str(i) + "']")
-            data[category] = [float(elem.text) for elem in data[category]]
+        def extract_table_data(data_tag):
+            if data_tag is None:
+                return None
+            if data_tag.find("data") is None:
+                return None
+            table = dict()  # Holds the description, headers, and dataframe
+            table["description"] = data_tag.find(".//description").text
+            table["headers"] = [elem.text for elem in data_tag.find(
+                ".//headers").iter("column")]
+            data = dict()
+            for i, category in enumerate(table["headers"]):
+                data[category] = data_tag.find(
+                    ".//rows").findall("row/column[@id='" + str(i) + "']")
+                data[category] = [float(elem.text) for elem in data[category]]
 
-        table["data"] = pd.DataFrame(data)
-        return table
+            table["data"] = pd.DataFrame(data)
+            return table
 
-    expected_data["Dielectric_Real_Permittivity"] = [extract_table_data(
-        data) for data in root.iter("Dielectric_Real_Permittivity")]
-    expected_data["Dielectric_Loss_Permittivity"] = [extract_table_data(
-        data) for data in root.iter("Dielectric_Loss_Permittivity")]
-    expected_data["Dielectric_Loss_Tangent"] = [extract_table_data(
-        data) for data in root.iter("Dielectric_Loss_Tangent")]
-    expected_data["ElectricConductivity"] = [extract_table_data(
-        data) for data in root.iter("ElectricConductivity")]
+        expected_data["Dielectric_Real_Permittivity"] = [extract_table_data(
+            data) for data in root.iter("Dielectric_Real_Permittivity")]
+        expected_data["Dielectric_Loss_Permittivity"] = [extract_table_data(
+            data) for data in root.iter("Dielectric_Loss_Permittivity")]
+        expected_data["Dielectric_Loss_Tangent"] = [extract_table_data(
+            data) for data in root.iter("Dielectric_Loss_Tangent")]
+        expected_data["ElectricConductivity"] = [extract_table_data(
+            data) for data in root.iter("ElectricConductivity")]
 
-    # Other Data
-    expected_data["equipment"] = [elem.text.lower()
-                                  for elem in root.iter("EquipmentUsed")]
-    expected_data["equipment"] += [elem.text.lower()
-                                   for elem in root.iter("Equipment")]
-    expected_data["equipment"] = ["http://nanomine.org/ns/" + slugify.slugify(elem)
-                                  for elem in expected_data["equipment"]]
-    expected_data["values"] = [
-        rdflib.Literal(val.text, datatype=rdflib.XSD.double) for val in root.iter("value")]
+        # Other Data
+        expected_data["equipment"] = [elem.text.lower()
+                                    for elem in root.iter("EquipmentUsed")]
+        expected_data["equipment"] += [elem.text.lower()
+                                    for elem in root.iter("Equipment")]
+        expected_data["equipment"] = ["http://nanomine.org/ns/" + slugify.slugify(elem)
+                                    for elem in expected_data["equipment"]]
+        expected_data["values"] = [
+            rdflib.Literal(val.text, datatype=rdflib.XSD.double) for val in root.iter("value")]
 
-    expected_data["temps"] = []
-    for node in root.iter("Temperature"):
-        expected_data["temps"] += [rdflib.Literal(val.text, datatype=rdflib.XSD.double)
-                                   for val in node.iter("value")]
-    temp.close()
-    return expected_data
+        expected_data["temps"] = []
+        for node in root.iter("Temperature"):
+            expected_data["temps"] += [rdflib.Literal(val.text, datatype=rdflib.XSD.double)
+                                    for val in node.iter("value")]
+        return expected_data
 
 
 def test_nanocomposites(runner):
@@ -306,6 +383,8 @@ def test_matrix_chemical_names(runner, expected_names=None):
     print("Expected Matrix Chemical Names found")
 
 
+# TODO Reimplement
+@disable_test
 def test_matrix_trade_names(runner, expected_names=None):
     # Check if the names of the chemicals are present
     print("\n\nMatrix Trade Names")
@@ -348,6 +427,8 @@ def test_filler_chemical_names(runner, expected_names=None):
     print("Expected Filler Chemical Names found")
 
 
+# TODO Reimplement
+@disable_test
 def test_filler_trade_names(runner, expected_names=None):
     # Check if the names of the chemicals are present
     print("\n\nFiller Trade Names")
@@ -371,6 +452,7 @@ def test_filler_trade_names(runner, expected_names=None):
 
 
 # TODO Fix or remove
+@disable_test
 def test_temperatures(runner, expected_temperatures=None):
     print("Checking if the expected temperatures are present")
     temperatures = list(runner.app.db.objects(
@@ -381,6 +463,8 @@ def test_temperatures(runner, expected_temperatures=None):
     print("Expected Temperatures Found")
 
 
+# TODO Reimplement
+@disable_test
 def test_abbreviations(runner, expected_abbreviations=None):
     print("Checking if the expected abbreviations are present")
     abbreviations = list(runner.app.db.query(
@@ -399,6 +483,8 @@ def test_abbreviations(runner, expected_abbreviations=None):
     print("Expected Abbreviations Found")
 
 
+# TODO Reimplement
+@disable_test
 def test_manufacturers(runner, expected_manufacturers=None):
     print("Checking if the expected manufactures are present")
     manufacturers = list(runner.app.db.query(
@@ -417,6 +503,8 @@ def test_manufacturers(runner, expected_manufacturers=None):
     print("Expected Manufactures Found")
 
 
+# TODO Reimplement
+@disable_test
 def test_complete_material(runner, expected_materials=None):
     materials = runner.app.db.query(
         """
@@ -455,36 +543,25 @@ def test_complete_material(runner, expected_materials=None):
     runner.assertCountEqual(expected_materials, material_properties)
 
 
-# TODO Fix or remove
-def construct_table(runner):
-    raise NotImplementedError
-    data = runner.app.db.query(
-    """
-    SELECT ?p1 ?p2 WHERE {
-        ?property a {} .
-        ?property sio:hasAttribute ?p1_bnode
-        ?p1_bnode a {} .
-        ?p2_bnode a {} .
-    }
-    """
-    )
-
-
-# TODO Fix or remove
-def test_dielectric_real_permittivity(runner, expected_data=None):
-    raise NotImplementedError
+def test_dielectric_real_permittivity(runner, expected_frequency, expected_real_permittivity, descriptions):
     print("Checking if the Dielectric Real Permittivity Table is as expected")
-    data = runner.app.db.query(
-    """
-    SELECT ?frequency ?lossTangent? WHERE {
-        ?bnode_freq a <http://nanomine.org/ns/FrequencyHZ> .
-        ?bnode_loss a <http://nanomine.org/ns/DielectricLossTangent> .
-    }
-    """
-    )
+    values = query_table(runner, "<http://nanomine.org/ns/RealPartOfDielectricPermittivity>", "<http://nanomine.org/ns/FrequencyHz>", **descriptions)
+    frequency = [v["independentVar"] for v in values]
+    real_permittivity = [v["dependentVar"] for v in values]
+    runner.assertCountEqual(expected_frequency, frequency)
+    runner.assertCountEqual(expected_real_permittivity, real_permittivity)
 
+
+def test_dielectric_loss_tangent(runner, expected_frequency, expected_tan_delta, descriptions):
+    print("Checking if Dielectric Loss Tangent Table is as expected")
+    values = query_table(runner, "<http://nanomine.org/ns/TanDelta>", "<http://nanomine.org/ns/FrequencyHz>", **descriptions)
+    frequency = [v["independentVar"] for v in values]
+    tan_delta = [v["dependentVar"] for v in values]
+    runner.assertCountEqual(expected_frequency, frequency)
+    runner.assertCountEqual(expected_tan_delta, tan_delta)
 
 # TODO Fix or remove
+@disable_test
 def test_filler_processing(runner, expected_process=None):
     print("Testing Filler Processing")
     process = runner.app.db.query(
@@ -503,7 +580,8 @@ def test_filler_processing(runner, expected_process=None):
     runner.assertCountEqual(expected_process, process)  # TODO figure out how to query ordering in process order
 
 
-# TODO Test further
+# TODO Reimplement
+@disable_test
 def test_viscoelastic_measurement_mode(runner, expected_mode=None):
     print("Testing viscoelastic measurement mode")
     mode = list(runner.app.db.objects(
@@ -516,31 +594,15 @@ def test_viscoelastic_measurement_mode(runner, expected_mode=None):
 # TODO Add autoparsing
 def test_tensile_loading_profile(runner, expected_strain=None, expected_stress=None):
     print("Stress value")
-    values = runner.app.db.query(
-    """
-    SELECT ?strain ?stress
-    WHERE {
-        ?common_node <http://semanticscience.org/resource/hasAttribute> ?type_node . 
-        ?type_node a <http://nanomine.org/ns/TensileLoadingProfile> .
-        ?common_node <http://semanticscience.org/resource/hasAttribute> ?strain_node .
-        ?common_node <http://semanticscience.org/resource/hasAttribute> ?stress_node .
+    values = query_table(runner, "<http://nanomine.org/ns/Stress>", "<http://nanomine.org/ns/Strain>")
 
-        ?strain_node a <http://nanomine.org/ns/Strain> .
-        ?strain_node <http://semanticscience.org/resource/hasValue> ?strain .
-        
-        ?stress_node a <http://nanomine.org/ns/Stress> .
-        ?stress_node <http://semanticscience.org/resource/hasValue> ?stress .
-
-    }
-    """
-    )
     if expected_strain is None:
         raise NotImplementedError
     if expected_stress is None:
         raise NotImplementedError
     
-    strain = [value["strain"] for value in values]
-    stress = [value["stress"] for value in values]
+    stress = [value["dependentVar"] for value in values]
+    strain = [value["independentVar"] for value in values]
     runner.assertCountEqual(expected_strain, strain) 
     runner.assertCountEqual(expected_stress, stress) 
     print("Expected Stress  value Found") 
@@ -549,39 +611,15 @@ def test_tensile_loading_profile(runner, expected_strain=None, expected_stress=N
 # TODO Verify node type, currently doesn't
 def test_flexural_loading_profile(runner, expected_strain=None, expected_stress=None):
     print("Testing Flexural Loading Profile")
-    values = runner.app.db.query(
-        # ?common_node <http://semanticscience.org/resource/hasAttribute> ?type_node .
-        # ?type_node a <http://nanomine.org/ns/FlexuralLoadingProfile> .
-    """
-    SELECT ?strain ?stress
-    WHERE {
-        ?common_node <http://semanticscience.org/resource/hasAttribute> ?stress_node .
-        ?common_node <http://semanticscience.org/resource/hasAttribute> ?strain_node .
-
-
-        
-        ?stress_node a <http://nanomine.org/ns/Stress> .
-        ?stress_node <http://semanticscience.org/resource/hasValue> ?stress .
-
-        ?strain_node a <http://nanomine.org/ns/Strain> .
-        ?strain_node <http://semanticscience.org/resource/hasValue> ?strain .
-
-    }
-    """
-    )
+    values = query_table(runner, "<http://nanomine.org/ns/Stress>", "<http://nanomine.org/ns/Strain>")
     print("Finished Query", flush=True)
     if expected_strain is None:
         raise NotImplementedError
     if expected_stress is None:
         raise NotImplementedError
     
-    # strain = [value["strain"] for value in values]
-    # stress = [value["stress"] for value in values]
-    strain = list()
-    stress = list()
-    for v in values:
-        strain.append(v["strain"])
-        stress.append(v["stress"])
+    stress = [value["dependentVar"] for value in values]
+    strain = [value["independentVar"] for value in values]
 
     runner.assertCountEqual(expected_strain, strain) 
     runner.assertCountEqual(expected_stress, stress) 
@@ -589,6 +627,8 @@ def test_flexural_loading_profile(runner, expected_strain=None, expected_stress=
 
 
 # TODO Refactor to remove usage of specific bnodes
+# TODO Reimplement 
+@disable_test
 def test_melt_viscosity(runner, expected_value=None):
     print("\n\nMelt Viscosity")
     values = runner.app.db.query(
@@ -643,7 +683,30 @@ def test_specific_surface_area(runner, expected_area=None, expected_units=None):
     runner.assertCountEqual(expected_units, units)
 
 
+def test_shear_loading_profile(runner, expected_aspect_ratio, expected_number, descriptions, types):
+    print("Testing shear loading profile")
+    values = query_table(runner, types["y_type"], types["x_type"], **descriptions)
 
+    number = [value["dependentVar"] for value in values]
+    aspect_ratio = [value["independentVar"] for value in values]
+
+    runner.assertCountEqual(expected_aspect_ratio, aspect_ratio)
+    runner.assertCountEqual(expected_number, number)
+
+
+def test_weibull_plot(runner, expected_breakdown, expected_failure, descriptions):
+    print("Testing Weibull Plot")
+    values = query_table(runner, "<http://nanomine.org/ns/ProbabilityOfFailure>", "<http://nanomine.org/ns/BreakdownStrength>", **descriptions)
+
+    breakdown = [value["independentVar"] for value in values]
+    failure = [value["dependentVar"] for value in values]
+
+    runner.assertCountEqual(expected_breakdown, breakdown)
+    runner.assertCountEqual(expected_failure, failure)
+
+
+
+disabled.append("test_triples")     # Prevent triples from being printed in CI
 def print_triples(runner):
     if os.getenv("CI") is None:
         print("Printing SPO Triples")
