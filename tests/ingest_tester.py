@@ -705,6 +705,16 @@ def test_weibull_plot(runner, expected_breakdown, expected_failure, descriptions
     runner.assertCountEqual(expected_failure, failure)
 
 
+def test_general_profile(runner, expected_independent, expected_dependent, descriptions, types):
+    print("Testing profile")
+    values = query_table(runner, types["dependent"], types["independent"], **descriptions)
+
+    independent = [value["independentVar"] for value in values]
+    dependent = [value["dependentVar"] for value in values]
+
+    runner.assertCountEqual(expected_independent, independent)
+    runner.assertCountEqual(expected_dependent, dependent)
+
 
 disabled.append("test_triples")     # Prevent triples from being printed in CI
 def print_triples(runner):
