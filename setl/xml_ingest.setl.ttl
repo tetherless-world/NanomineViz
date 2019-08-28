@@ -734,6 +734,36 @@ def result():
 						}]
 					},
 					{
+						"@id": "entry:{{id.text.replace(' ','')}}_material",
+						"prov:wasGeneratedBy":
+						[
+							{
+								"@for": "i, parameter in row.findall('PROCESSING/SolutionProcessing')",
+								"@do":
+								[{
+									
+									"@for": "proc in parameter.findall('ChooseParameter/*')",
+									"@do":
+									[{
+										"@type": "nanomine:{{camelcase(proc.text)}}",
+										"@if": "proc.find('..//Other').text is not None",
+										"@value": "{{proc.find('..//Other').text}}",
+										"dc:description": 
+										[{
+											"@if": "proc.find('..//Mixing/description') is not None",
+											"@value": "{{parameter.find('..//Mixing/description').text}}"
+										}]
+									}]
+
+								}]
+							}
+
+						]
+						
+
+
+					},
+					{
 						"@for": "citation in row.findall('DATA_SOURCE/Citation')",
 						"@do": {
 							"@id": "entry:{{id.text.replace(' ','')}}_assertion",
