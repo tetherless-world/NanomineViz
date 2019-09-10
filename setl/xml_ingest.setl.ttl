@@ -738,31 +738,50 @@ def result():
 						"prov:wasGeneratedBy":
 						[
 							{
-								"@for": "i, parameter in row.findall('PROCESSING/SolutionProcessing')",
+								"@for": "i, process in enumerate(row.findall('PROCESSING/SolutionProcessing/ChooseParameter'))",
 								"@do":
-								[{
-									
-									"@for": "proc in parameter.findall('ChooseParameter/*')",
-									"@do":
-									[{
-										"@type": "nanomine:{{camelcase(proc.text)}}",
-										"@if": "proc.find('..//Other').text is not None",
-										"@value": "{{proc.find('..//Other').text}}",
-										"dc:description": 
+								[
+									{
+										"@type": "nanomine:Other",
+										"dc:description":
 										[{
-											"@if": "proc.find('..//Mixing/description') is not None",
-											"@value": "{{parameter.find('..//Mixing/description').text}}"
+											"@if": "process.find('Other') is not None",
+											"@value": "{{process.find('Other').text}}"
 										}]
-									}]
+										
+									},
+									{
+										"@for": "mix in process.findall('Mixing')",
+										"@do":
+										{
+											"@type": "nanomine:Mixing",
+											"dc:description": 
+											[{
+												"@if": "mix.find('..//Mixing/Description') is not None",
+												"@value": "{{mix.find('..//Mixing/Description').text}}"
+											}],
+											"sio:hasRole":
+											{
+												"@type": "nanomine:Mixing",
+												"@id": "sample:{{slugify(mix.findtext('..//Mixing/MixingMethod').replace(' ',''))}}_mixing_method",
+												"sio:inRelationTo":
+												{
+													"@id": "sample:{{slugify(id.text.replace(' ',''))}}"
+												}
+											}
 
-								}]
+										}
+									}
+								]
+								
+
+							
 							}
-
 						]
+									
 						
 
-
-					},
+					},				
 					{
 						"@for": "citation in row.findall('DATA_SOURCE/Citation')",
 						"@do": {
