@@ -735,33 +735,53 @@ def result():
 					},
 					{
 						"@id": "entry:{{id.text.replace(' ','')}}_material",
-						"prov:wasGeneratedBy": [
-							{									
-								"@for" : "p, process in processing.iterrows()",
-								"@do" : 
-								{
-									"@type" : "sio:Procedure",
-									"sio:hasInput":
+						"prov:wasGeneratedBy":
+						[
+							{
+								"@for": "i, process in enumerate(row.findall('PROCESSING/SolutionProcessing/ChooseParameter'))",
+								"@do":
+								[
 									{
-										"@id": "sio:ChemicalEntity"	,
-										"@type": [
+										"@type": "nanomine:Other",
+										"dc:description":
+										[{
+											"@if": "process.find('Other') is not None",
+											"@value": "{{process.find('Other').text}}"
+										}]
+										
+									},
+									{
+										"@for": "mix in process.findall('Mixing')",
+										"@do":
+										{
+											"@type": "nanomine:Mixing",
+											"dc:description": 
+											[{
+												"@if": "mix.find('..//Mixing/Description') is not None",
+												"@value": "{{mix.find('..//Mixing/Description').text}}"
+											}],
+											"sio:hasRole":
 											{
-												"@if": "process.find('Additive') is not none",
-												"@type": "nanomine:Additive",
-												"@value": "{process.find('//Additive').text}"					
-											},
-											{
-												"@if": "process.find('Solvent') is not none",
-												"@type": "nanomine:Solvent",
-												"@value": "{process.find('//Solvent').text}"					
+												"@type": "nanomine:Mixing",
+												"@id": "sample:{{slugify(mix.findtext('..//Mixing/MixingMethod').replace(' ',''))}}_mixing_method",
+												"sio:inRelationTo":
+												{
+													"@id": "sample:{{slugify(id.text.replace(' ',''))}}"
+												}
 											}
-										]
-									}
-								}
-							}
-						]	
 
-					},
+										}
+									}
+								]
+								
+
+							
+							}
+						]
+									
+						
+
+					},				
 					{
 						"@for": "citation in row.findall('DATA_SOURCE/Citation')",
 						"@do": {
