@@ -879,6 +879,50 @@ def result():
                                                                 "@value": "{{param.find('Mixing/Mixer').text}}"
                                                             }
                                                         ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Heating')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_heating_{{pn}}",
+                                                        "@type": "nanomine:Heating",
+                                                        "dcterms:description": [
+                                                            {
+                                                                "@if": "param.find('Heating/Description').text is not None",
+                                                                "@value" : "{{param.find('Heating/Description').text}}"
+                                                             }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Cooling')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_cooling_{{pn}}",
+                                                        "@type": "nanomine:Cooling",
+                                                        "dcterms:description": [
+                                                            {
+                                                                "@if": "param.find('Cooling/Description').text is not None",
+                                                                "@value" : "{{param.find('Cooling/Description').text}}"
+                                                             }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Drying-Evaporation')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_drying-evaporation_{{pn}}",
+                                                        "@type": "nanomine:Drying-Evaporation",
+                                                        "dcterms:description": [
+                                                            {
+                                                                "@if": "param.find('Drying-Evaporation/Description').text is not None",
+                                                                "@value" : "{{param.find('Drying-Evaporation/Description').text}}"
+                                                             }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Molding/MoldingInfo')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_molding_{{pn}}",
+                                                        "@type": "nanomine:Molding",
+                                                        "dcterms:description": [
+                                                            {
+                                                                "@if": "param.find('Molding/MoldingInfo/Description').text is not None",
+                                                                "@value" : "{{param.find('Molding/MoldingInfo/Description').text}}"
+                                                             }
+                                                        ]
                                                     }
                                                 ]
                                             }
