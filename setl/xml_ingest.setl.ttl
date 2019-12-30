@@ -15,6 +15,7 @@
 @prefix pv:            <http://purl.org/net/provenance/ns#>.
 @prefix sp:            <http://spinrdf.org/sp#>.
 @prefix dc:               <http://purl.org/dc/elements/1.1/>.
+@prefix efo:               <http://www.ebi.ac.uk/efo/EFO_>.
 @prefix api_vocab: <http://purl.org/linked-data/api/vocab#>.
 
 @prefix :              <http://nanomine.org/setl/xml/> .
@@ -829,6 +830,53 @@ def result():
                                                                         "rdfs:label": "{{param.find('Solvent/SolventAmount/unit').text}}"
                                                                      }
                                                                 ]
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Curing')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_curing_{{pn}}",
+                                                        "@type": "nanomine:Curing",
+                                                        "dcterms:description": [
+                                                            {
+                                                                "@if": "param.find('Curing/Description').text is not None",
+                                                                "@value" : "{{param.find('Curing/Description').text}}"
+                                                             }
+                                                        ],
+                                                        "sio:hasAttribute": [
+                                                            {
+                                                                "@if": "param.find('Curing/Temperature') is not None",
+                                                                "@id": "entry:{{id.text.replace(' ','')}}_sp_curing_temperature_{{pn}}",
+                                                                "@type": "efo:0001702" ,
+                                                                "dcterms:description": [
+                                                                    {
+                                                                        "@if": "param.find('Curing/Temperature/description').text is not None",
+                                                                        "@value": "{{param.find('Curing/Temperature/description').text}}"
+                                                                     }
+                                                                ] ,
+                                                                "sio:hasValue": [
+                                                                    {
+                                                                        "@if": "param.find('Curing/Temperature/value').text is not None",
+                                                                        "@value": "{{param.find('Curing/Temperature/value').text}}"
+                                                                     }
+                                                                ]
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Mixing')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_mixing_{{pn}}",
+                                                        "@type": "nanomine:Mixing",
+                                                        "dcterms:description": [
+                                                            {
+                                                                "@if": "param.find('Mixing/Description').text is not None",
+                                                                "@value" : "{{param.find('Mixing/Description').text}}"
+                                                             }
+                                                        ],
+                                                        "sio:hasValue": [
+                                                            {
+                                                                "@if": "param.find('Mixing/Mixer').text is not None",
+                                                                "@value": "{{param.find('Mixing/Mixer').text}}"
                                                             }
                                                         ]
                                                     }
