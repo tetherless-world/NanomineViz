@@ -881,6 +881,28 @@ def result():
                                                         ]
                                                     },
                                                     {
+                                                        "@if": "param.find('Extrusion/SingleScrewExtrusion')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_extrusion_ss_{{pn}}",
+                                                        "@type": "nanomine:SingleScrew",
+                                                        "sio:hasValue": [
+                                                            {
+                                                                "@if": "param.find('Extrusion/SingleScrewExtrusion/Extruder').text is not None",
+                                                                "@value": "{{param.find('Extrusion/SingleScrewExtrusion/Extruder').text}}"
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Extrusion/TwinScrewExtrusion')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_extrusion_ss_{{pn}}",
+                                                        "@type": "nanomine:TwinScrew",
+                                                        "sio:hasValue": [
+                                                            {
+                                                                "@if": "param.find('Extrusion/TwinScrewExtrusion/Extruder').text is not None",
+                                                                "@value": "{{param.find('Extrusion/TwinScrewExtrusion/Extruder').text}}"
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
                                                         "@if": "param.find('Heating')",
                                                         "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_heating_{{pn}}",
                                                         "@type": "nanomine:Heating",
@@ -921,6 +943,17 @@ def result():
                                                             {
                                                                 "@if": "param.find('Molding/MoldingInfo/Description').text is not None",
                                                                 "@value" : "{{param.find('Molding/MoldingInfo/Description').text}}"
+                                                             }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "@if": "param.find('Other')",
+                                                        "@id": "entry:{{id.text.replace(' ','')}}_solution_processing_other_{{pn}}",
+                                                        "@type": "nanomine:Other",
+                                                        "sio:hasValue": [
+                                                            {
+                                                                "@if": "param.find('Other').text is not None",
+                                                                "@value" : "{{param.find('Other').text}}"
                                                              }
                                                         ]
                                                     }
