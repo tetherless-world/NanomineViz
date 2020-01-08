@@ -853,12 +853,26 @@ def result():
                                                                         "@if": "param.find('Curing/Temperature/description').text is not None",
                                                                         "@value": "{{param.find('Curing/Temperature/description').text}}"
                                                                      }
-                                                                ] ,
+                                                                ],
                                                                 "sio:hasValue": [
                                                                     {
                                                                         "@if": "param.find('Curing/Temperature/value').text is not None",
                                                                         "@value": "{{param.find('Curing/Temperature/value').text}}"
                                                                      }
+                                                                ],
+                                                                "sio:hasAttribute": [
+                                                                    {
+                                                                        "@if": "param.find('Curing/Temperature/uncertainty').text is not None",
+                                                                        "@type": "sio:UncertaintyValue",
+                                                                        "rdfs:comment": [{
+                                                                            "@if": "param.find('Curing/Temperature/uncertainty/type').text is not None",
+                                                                            "@value": "{{param.find('Curing/Temperature/uncertainty/type').text}}"
+                                                                        }],
+                                                                        "sio:hasValue": [{
+                                                                            "@if": "param.find('Curing/Temperature/uncertainty/value').text is not None",
+                                                                            "@value": "{{param.find('Curing/Temperature/uncertainty/value').text}}"
+                                                                        }]
+                                                                    }
                                                                 ]
                                                             }
                                                         ]
