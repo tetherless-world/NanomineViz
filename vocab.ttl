@@ -490,6 +490,18 @@ whyis:hasView "visualization.html".
   whyis:hasFacets "pnc_facets.json";
   whyis:hasFacetValues "facet_values_20201008_HARDCODED.json".
 
+<http://materialsmine.org/ns/Metamaterial> a <http://materialsmine.org/ns/MMClass>.
+
+<http://materialsmine.org/ns/MMClass> rdfs:subClassOf owl:Class.
+
+<http://materialsmine.org/ns/MMClass> a owl:Class;
+  whyis:hasConstraints "class_constraints.json";
+  whyis:hasOutgoing "outgoing_class.json";
+  whyis:hasIncoming "incoming_class.json";
+  whyis:newInstanceView "new_instance_view.html";
+  whyis:hasView "class_view.html";
+  whyis:hasFacets "mm_facets.json".
+
 <http://nanomine.org/gallery> a whyis:ChartVizGallery.
 
 whyis:ChartVizGallery whyis:hasView "chart_gallery.html".

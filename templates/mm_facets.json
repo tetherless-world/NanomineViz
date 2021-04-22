@@ -1,0 +1,24 @@
+[ 
+    { 
+        "class": "http://materialsmine.org/ns/Metamaterial", 
+        "label": "Metamaterial Property", 
+        "facetId" : "MetamaterialProperty", 
+        "predicate": "^<http://semanticscience.org/resource/isAttributeOf>", 
+        "inverse": "http://semanticscience.org/resource/isAttributeOf",
+        "typeProperty" : "rdf:type", 
+        "valuePredicate" : "<http://semanticscience.org/resource/hasValue>", 
+        "unitPredicate" : "<http://semanticscience.org/resource/hasUnit>", 
+        "propertyType": "http://www.w3.org/2002/07/owl#ObjectProperty" 
+    }, 
+    { 
+        "class": "http://materialsmine.org/ns/Metamaterial", 
+        "inverse": "http://semanticscience.org/resource/isComponentPartOf", 
+        "label": "Constituent Material", 
+        "facetId" : "ConstituentMaterial", 
+        "multiType": "union", 
+        "predicate": "<http://semanticscience.org/resource/hasComponentPart>", 
+        "typeProperty" : "rdf:type", 
+        "specifier" : "",
+        "propertyType": "http://www.w3.org/2002/07/owl#ObjectProperty" 
+    }
+] 
